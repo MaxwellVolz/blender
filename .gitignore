@@ -1,6 +1,10 @@
 # Custom
 zzz.md
 
+venv
+sf/output/
+sf/resources/
+
 # Logs
 logs
 *.log
