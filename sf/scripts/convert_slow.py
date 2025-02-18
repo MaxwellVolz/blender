@@ -5,130 +5,85 @@ FEET_TO_CM = 30.48
 
 def feet_to_cm(feet):
     return feet * FEET_TO_CM
-# file_path = "Building_Footprints_22404699.csv"
-file_path = "sf/resources/sf_building_footprints_20k.csv"
-obj_file = "full_raw.obj"
 
-# building options
-building_base= "hgt_mincm"
-building_roof= "hgt_maxcm"
-
-data = pd.read_csv(file_path)
-
-min_x, min_y = float('inf'), float('inf')
-max_x, max_y = float('-inf'), float('-inf')
-min_height, max_height = float('inf'), float('-inf')
-
-for index, row in data.iterrows():
-    multipolygon = row['shape']
-
-    coords_str = re.sub(r"MULTIPOLYGON\s*\(\(\(|\)\)\)", "", multipolygon)
+def parse_coordinates(coords_str):
+    coords_str = re.sub(r"MULTIPOLYGON\s*\(\(\(|\)\)\)", "", coords_str)
     coords_str = coords_str.replace('(', '').replace(')', "")
+    return [tuple(map(float, coord.strip().split())) for coord in coords_str.split(', ')]
 
-    try:
-        coordinates = [tuple(map(float, coord.strip().split())) for coord in coords_str.split(', ')]
-    except ValueError as e:
-        print(f"Error parsing coordinates for row {index}: {e}")
-        continue
-
-    for (x, y) in coordinates:
-        if x < min_x: min_x = x
-        if x > max_x: max_x = x
-        if y < min_y: min_y = y
-        if y > max_y: max_y = y
-
-    z_min = row[building_base] if pd.notna(row[building_base]) else 0
-    z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
-
-    height = z_max - z_min
-
-    if height < min_height: min_height = height
-    if height > max_height: max_height = height
-
-    print(f"height: {height} min_height: {min_height} max_height: {max_height}")
-
-
-offset_x = (min_x + max_x) / 2
-offset_y = (min_y + max_y) / 2
-
-scaling_factor = 1
-
-target_min_height = 0.0
-target_max_height = 10.0
-
-height_range = max_height - min_height
-
-
-with open(obj_file, "w") as obj:
-    vertices = []
-    faces = []
-    vertex_count = 1
+def process_building_data(data, building_base, building_roof):
+    min_x, min_y = float('inf'), float('inf')
+    max_x, max_y = float('-inf'), float('-inf')
+    min_height, max_height = float('inf'), float('-inf')
+    coordinates_list = []
 
     for index, row in data.iterrows():
-        multipolygon = row['shape']
-
-        coords_str = re.sub(r"MULTIPOLYGON\s*\(\(\(|\)\)\)", '', multipolygon)
-        coords_str = coords_str.replace('(', '').replace(')', '')
-
         try:
-            coordinates = [tuple(map(float, coord.strip().split())) for coord in coords_str.split(', ')]
+            coordinates = parse_coordinates(row['shape'])
         except ValueError as e:
             print(f"Error parsing coordinates for row {index}: {e}")
             continue
 
+        coordinates_list.append((index, coordinates))
+        x_coords, y_coords = zip(*coordinates)
+        min_x = min(min_x, *x_coords)
+        max_x = max(max_x, *x_coords)
+        min_y = min(min_y, *y_coords)
+        max_y = max(max_y, *y_coords)
+
         z_min = row[building_base] if pd.notna(row[building_base]) else 0
         z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
-
         height = z_max - z_min
-        normalized_height = height
-        z_min_normalized = 0
-        z_max_normalized = normalized_height
+        min_height = min(min_height, height)
+        max_height = max(max_height, height)
 
-        print(f"normalized_height: {normalized_height} ")
+    return min_x, max_x, min_y, max_y, min_height, max_height, coordinates_list
 
-        base_indices = []
-        top_indices = []
+def write_obj_file(data, coordinates_list, building_base, building_roof, min_x, max_x, min_y, max_y, min_height, max_height, obj_file):
+    offset_x = (min_x + max_x) / 2
+    offset_y = (min_y + max_y) / 2
+    scaling_factor = 1
+    height_range = max_height - min_height
 
-        # Center and scale coordinates
-        for (x, y) in coordinates:
-            x_centered = (x - offset_x) * scaling_factor
-            y_centered = (y - offset_y) * scaling_factor
-            z_centered = (z_min - min_height) / height_range * (target_max_height - target_min_height) + target_min_height
+    with open(obj_file, "w") as obj:
+        vertex_count = 1
 
-            vertices.append((x_centered, y_centered, z_centered))
-            obj.write(f"v {x_centered} {y_centered} {z_centered}\n")
+        for index, coordinates in coordinates_list:
+            row = data.iloc[index]
+            z_min = row[building_base] if pd.notna(row[building_base]) else 0
+            z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
 
-            base_indices.append(vertex_count)
-            vertex_count += 1
+            base_indices = []
+            top_indices = []
 
-            z_max_normalized = z_max / height_range * (target_max_height - target_min_height) + target_min_height
-            # Top vertex at (x_centered, y_centered, z_max_normalized)
-            vertices.append((x_centered, y_centered, z_max))
-            obj.write(f"v {x_centered} {y_centered} {z_max}\n")
-            top_indices.append(vertex_count)
-            vertex_count += 1
+            for (x, y) in coordinates:
+                x_centered = (x - offset_x) * scaling_factor
+                y_centered = (y - offset_y) * scaling_factor
+                z_centered = (z_min - min_height) / height_range * 10
 
-            # print(base_indices)
-            # print(top_indices)
+                obj.write(f"v {x_centered} {y_centered} {z_centered}\n")
+                base_indices.append(vertex_count)
+                vertex_count += 1
 
-        # Create faces for the sides, connect each base vertex to the corresponding top vertex
-        for i in range(len(base_indices)):
-            next_i = (i + 1) % len(base_indices)
-            v1 = base_indices[i]
-            v2 = base_indices[next_i]
-            v3 = top_indices[next_i]
-            v4 = top_indices[i]
-            faces.append((v1, v2, v3, v4))
+                z_max_centered = (z_max - min_height) / height_range * 10
+                obj.write(f"v {x_centered} {y_centered} {z_max_centered}\n")
+                top_indices.append(vertex_count)
+                vertex_count += 1
 
-        # Create face for the base (bottom face)
-        if len(base_indices) > 2:
-            faces.append(tuple(base_indices))
+            for i in range(len(base_indices) - 1):
+                obj.write(f"f {base_indices[i]} {base_indices[i+1]} {top_indices[i+1]} {top_indices[i]}\n")
 
-        # Create face for the top (top face)
-        if len(top_indices) > 2:
-            faces.append(tuple(reversed(top_indices)))  # Reverse to ensure normal direction is correct
+            if len(base_indices) > 2:  # Write top and bottom faces if they form a valid polygon
+                obj.write(f"f {' '.join(map(str, base_indices))}\n")
+                obj.write(f"f {' '.join(map(str, reversed(top_indices)))}\n")
 
+# Constants and file paths
+file_path = "sf/resources/sf_building_footprints_20k.csv"
+obj_file = "full_raw.obj"
+building_base = "hgt_mincm"
+building_roof = "hgt_maxcm"
 
-    # Write faces to the OBJ file
-    for face in faces:
-        obj.write("f {}\n".format(" ".join(map(str, face))))
+# Load data and process
+data = pd.read_csv(file_path)
+min_x, max_x, min_y, max_y, min_height, max_height, coordinates_list = process_building_data(data, building_base, building_roof)
+write_obj_file(data, coordinates_list, building_base, building_roof, min_x, max_x, min_y, max_y, min_height, max_height, obj_file)
