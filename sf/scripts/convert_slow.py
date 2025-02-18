@@ -1,16 +1,19 @@
 import pandas as pd
 import re
 
+FEET_TO_CM = 30.48
+
+def feet_to_cm(feet):
+    return feet * FEET_TO_CM
 # file_path = "Building_Footprints_22404699.csv"
-file_path = "sf/resources/sf_building_footprints.csv"
+file_path = "sf/resources/sf_building_footprints_20k.csv"
 obj_file = "full_raw.obj"
 
 # building options
-building_base= "gnd_cells50cm"
-building_roof= "p2010_zmaxn88ft"
+building_base= "hgt_mincm"
+building_roof= "hgt_maxcm"
 
 data = pd.read_csv(file_path)
-
 
 min_x, min_y = float('inf'), float('inf')
 max_x, max_y = float('-inf'), float('-inf')
@@ -48,14 +51,13 @@ for index, row in data.iterrows():
 offset_x = (min_x + max_x) / 2
 offset_y = (min_y + max_y) / 2
 
-scaling_factor = 0.01
+scaling_factor = 1
 
-target_min_height = 1.0
-target_max_height = 5.0
+target_min_height = 0.0
+target_max_height = 10.0
 
-height_range = max_height - min_height if max_height != min_height else 1
+height_range = max_height - min_height
 
-scale_height = lambda h: target_min_height + ((h-min_height) / height_range) * (target_max_height- target_min_height)
 
 with open(obj_file, "w") as obj:
     vertices = []
@@ -78,7 +80,6 @@ with open(obj_file, "w") as obj:
         z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
 
         height = z_max - z_min
-        # normalized_height = scale_height(height)
         normalized_height = height
         z_min_normalized = 0
         z_max_normalized = normalized_height
@@ -92,13 +93,15 @@ with open(obj_file, "w") as obj:
         for (x, y) in coordinates:
             x_centered = (x - offset_x) * scaling_factor
             y_centered = (y - offset_y) * scaling_factor
+            z_centered = (z_min - min_height) / height_range * (target_max_height - target_min_height) + target_min_height
 
-            # Base vertex at (x_centered, y_centered, z_min_normalized)
-            vertices.append((x_centered, y_centered, z_min))
-            obj.write(f"v {x_centered} {y_centered} {z_min}\n")
+            vertices.append((x_centered, y_centered, z_centered))
+            obj.write(f"v {x_centered} {y_centered} {z_centered}\n")
+
             base_indices.append(vertex_count)
             vertex_count += 1
 
+            z_max_normalized = z_max / height_range * (target_max_height - target_min_height) + target_min_height
             # Top vertex at (x_centered, y_centered, z_max_normalized)
             vertices.append((x_centered, y_centered, z_max))
             obj.write(f"v {x_centered} {y_centered} {z_max}\n")
