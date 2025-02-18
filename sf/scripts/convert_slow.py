@@ -39,10 +39,10 @@ def process_building_data(data, building_base, building_roof):
 
     return min_x, max_x, min_y, max_y, min_height, max_height, coordinates_list
 
-def write_obj_file(data, coordinates_list, building_base, building_roof, min_x, max_x, min_y, max_y, min_height, max_height, obj_file):
+def write_obj_file(data, coordinates_list, building_base, building_roof, ground_base, min_x, max_x, min_y, max_y, min_height, max_height, obj_file, hill_multiplier=2.0):
     offset_x = (min_x + max_x) / 2
     offset_y = (min_y + max_y) / 2
-    scaling_factor = 1
+    x_scale, y_scale, z_scale = 5000, 5000, 0.5  # Scale factors for x, y, and z dimensions
     height_range = max_height - min_height
 
     with open(obj_file, "w") as obj:
@@ -50,40 +50,50 @@ def write_obj_file(data, coordinates_list, building_base, building_roof, min_x, 
 
         for index, coordinates in coordinates_list:
             row = data.iloc[index]
-            z_min = row[building_base] if pd.notna(row[building_base]) else 0
-            z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
+            ground_z = row[ground_base] if pd.notna(row[ground_base]) else 0
+            z_min = (row[building_base] if pd.notna(row[building_base]) else 0) + ground_z
+            z_max = (row[building_roof] if pd.notna(row[building_roof]) else z_min) + ground_z
 
             base_indices = []
             top_indices = []
 
             for (x, y) in coordinates:
-                x_centered = (x - offset_x) * scaling_factor
-                y_centered = (y - offset_y) * scaling_factor
-                z_centered = (z_min - min_height) / height_range * 10
+                x_centered_scaled = (x - offset_x) * x_scale
+                y_centered_scaled = (y - offset_y) * y_scale
+                z_min_scaled = ((z_min - min_height) / height_range * 10 * hill_multiplier) * z_scale
+                z_max_scaled = ((z_max - min_height) / height_range * 10 * hill_multiplier) * z_scale
 
-                obj.write(f"v {x_centered} {y_centered} {z_centered}\n")
+                obj.write(f"v {x_centered_scaled} {y_centered_scaled} {z_min_scaled}\n")
                 base_indices.append(vertex_count)
                 vertex_count += 1
 
-                z_max_centered = (z_max - min_height) / height_range * 10
-                obj.write(f"v {x_centered} {y_centered} {z_max_centered}\n")
+                obj.write(f"v {x_centered_scaled} {y_centered_scaled} {z_max_scaled}\n")
                 top_indices.append(vertex_count)
                 vertex_count += 1
 
-            for i in range(len(base_indices) - 1):
-                obj.write(f"f {base_indices[i]} {base_indices[i+1]} {top_indices[i+1]} {top_indices[i]}\n")
+            for i in range(len(base_indices)):
+                next_i = (i + 1) % len(base_indices)
+                obj.write(f"f {base_indices[i]} {base_indices[next_i]} {top_indices[next_i]} {top_indices[i]}\n")
 
-            if len(base_indices) > 2:  # Write top and bottom faces if they form a valid polygon
+            if len(base_indices) > 2:
                 obj.write(f"f {' '.join(map(str, base_indices))}\n")
                 obj.write(f"f {' '.join(map(str, reversed(top_indices)))}\n")
 
+# Custom Params
+hill_multiplier = 10.0
+
+# Constants for fields in the dataset
+ground_base = 'gnd_mediancm'
+building_base = 'hgt_mincm'
+building_roof = 'hgt_maxcm'
+
+
 # Constants and file paths
-file_path = "sf/resources/sf_building_footprints_20k.csv"
-obj_file = "full_raw.obj"
-building_base = "hgt_mincm"
-building_roof = "hgt_maxcm"
+file_path = "sf/resources/sf_building_footprints.csv"
+obj_file = "hills_5.obj"
+
 
 # Load data and process
 data = pd.read_csv(file_path)
 min_x, max_x, min_y, max_y, min_height, max_height, coordinates_list = process_building_data(data, building_base, building_roof)
-write_obj_file(data, coordinates_list, building_base, building_roof, min_x, max_x, min_y, max_y, min_height, max_height, obj_file)
+write_obj_file(data, coordinates_list, building_base, building_roof, ground_base, min_x, max_x, min_y, max_y, min_height, max_height, obj_file, hill_multiplier)
