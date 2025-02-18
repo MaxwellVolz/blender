@@ -3,10 +3,14 @@ import re
 
 # file_path = "Building_Footprints_22404699.csv"
 file_path = "sf/resources/sf_building_footprints.csv"
+obj_file = "full_raw.obj"
+
+# building options
+building_base= "gnd_cells50cm"
+building_roof= "p2010_zmaxn88ft"
 
 data = pd.read_csv(file_path)
 
-obj_file = "building_footprints_3d_normalized.obj"
 
 min_x, min_y = float('inf'), float('inf')
 max_x, max_y = float('-inf'), float('-inf')
@@ -30,15 +34,15 @@ for index, row in data.iterrows():
         if y < min_y: min_y = y
         if y > max_y: max_y = y
 
-    z_min = row['p2010_zminn88ft'] if pd.notna(row['p2010_zminn88ft']) else 0
-    z_max = row['p2010_zmaxn88ft'] if pd.notna(row['p2010_zmaxn88ft']) else z_min
+    z_min = row[building_base] if pd.notna(row[building_base]) else 0
+    z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
 
     height = z_max - z_min
 
     if height < min_height: min_height = height
     if height > max_height: max_height = height
 
-    # print(f"height: {height} min_height: {min_height} max_height: {max_height}")
+    print(f"height: {height} min_height: {min_height} max_height: {max_height}")
 
 
 offset_x = (min_x + max_x) / 2
@@ -46,7 +50,7 @@ offset_y = (min_y + max_y) / 2
 
 scaling_factor = 0.01
 
-target_min_height = 0.2
+target_min_height = 1.0
 target_max_height = 5.0
 
 height_range = max_height - min_height if max_height != min_height else 1
@@ -70,16 +74,16 @@ with open(obj_file, "w") as obj:
             print(f"Error parsing coordinates for row {index}: {e}")
             continue
 
-        z_min = row['p2010_zminn88ft'] if pd.notna(row['p2010_zminn88ft']) else 0
-        z_max = row['p2010_zmaxn88ft'] if pd.notna(row['p2010_zmaxn88ft']) else z_min
+        z_min = row[building_base] if pd.notna(row[building_base]) else 0
+        z_max = row[building_roof] if pd.notna(row[building_roof]) else z_min
 
         height = z_max - z_min
-        normalized_height = scale_height(height)
-        # normalized_height = height
+        # normalized_height = scale_height(height)
+        normalized_height = height
         z_min_normalized = 0
         z_max_normalized = normalized_height
 
-        # print(f"normalized_height: {normalized_height} ")
+        print(f"normalized_height: {normalized_height} ")
 
         base_indices = []
         top_indices = []
@@ -90,14 +94,14 @@ with open(obj_file, "w") as obj:
             y_centered = (y - offset_y) * scaling_factor
 
             # Base vertex at (x_centered, y_centered, z_min_normalized)
-            vertices.append((x_centered, y_centered, z_min_normalized))
-            obj.write(f"v {x_centered} {y_centered} {z_min_normalized}\n")
+            vertices.append((x_centered, y_centered, z_min))
+            obj.write(f"v {x_centered} {y_centered} {z_min}\n")
             base_indices.append(vertex_count)
             vertex_count += 1
 
             # Top vertex at (x_centered, y_centered, z_max_normalized)
-            vertices.append((x_centered, y_centered, z_max_normalized))
-            obj.write(f"v {x_centered} {y_centered} {z_max_normalized}\n")
+            vertices.append((x_centered, y_centered, z_max))
+            obj.write(f"v {x_centered} {y_centered} {z_max}\n")
             top_indices.append(vertex_count)
             vertex_count += 1
 
